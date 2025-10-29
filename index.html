@@ -1,0 +1,582 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Counselling Invoice Generator</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #f4f7f9; }
+        /* Style for print output to hide controls */
+        @media print {
+            .no-print { display: none !important; }
+            .invoice-container { margin: 0; box-shadow: none; border: none; }
+            body { background-color: white; }
+            /* Hide input borders for print */
+            .input-text { border-bottom: none !important; }
+            .line-description-custom:not(.hidden) { border-bottom: 1px solid #ccc !important; }
+            .line-date { text-align: left !important; }
+        }
+        .input-text {
+            @apply border-b border-gray-300 focus:border-indigo-500 outline-none p-1 bg-transparent;
+        }
+        .loading-overlay {
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(255, 255, 255, 0.9);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+            border-radius: 0.75rem;
+        }
+        /* Custom spinner for loading */
+        .spinner {
+            border: 4px solid rgba(0, 0, 0, 0.1);
+            border-left-color: #4f46e5;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body class="p-4 sm:p-8">
+
+    <div class="max-w-4xl mx-auto bg-white rounded-xl shadow-2xl p-6 sm:p-10 invoice-container relative">
+        <div id="loadingOverlay" class="loading-overlay hidden">
+            <div class="spinner"></div>
+        </div>
+
+        <!-- Header & Branding -->
+        <header class="flex flex-col sm:flex-row justify-between items-start mb-12 border-b pb-6">
+            <div class="text-4xl font-extrabold text-indigo-700 mb-4 sm:mb-0">INVOICE</div>
+            <div class="text-right">
+                <h1 class="text-xl font-bold text-gray-800">Stephanie Anne</h1>
+                <p class="text-sm text-gray-600">Counselling Services</p>
+                <p class="text-sm text-gray-600">Email: Stephanieanne@client-led.uk</p>
+                <p class="text-sm text-gray-600">Tel: 07736973185</p>
+            </div>
+        </header>
+
+        <!-- Invoice Details & Client Info -->
+        <section class="grid grid-cols-1 md:grid-cols-3 gap-8 mb-10">
+            <!-- Invoice Details -->
+            <div class="md:col-span-1 text-sm space-y-2 p-4 bg-gray-50 rounded-lg">
+                <div class="flex justify-between font-semibold">
+                    <span>Invoice #:</span>
+                    <input type="text" id="invoiceNumber" value="INV-2024-001" class="input-text w-1/2 text-right font-normal">
+                </div>
+                <div class="flex justify-between">
+                    <span>Invoice Date:</span>
+                    <input type="date" id="invoiceDate" class="input-text w-1/2 text-right font-normal">
+                </div>
+                <div class="flex justify-between">
+                    <span>Payment Due:</span>
+                    <input type="date" id="dueDate" class="input-text w-1/2 text-right font-normal">
+                </div>
+                <div class="flex justify-between pt-2">
+                    <button onclick="saveAndIncrementInvoice()" class="no-print w-full px-3 py-1 text-xs font-medium text-white bg-green-500 rounded-lg shadow-md hover:bg-green-600 transition duration-150">
+                        Save Invoice Number
+                    </button>
+                </div>
+            </div>
+
+            <!-- Client Details -->
+            <div class="md:col-span-2 space-y-2 p-4 border rounded-lg">
+                <h2 class="text-md font-semibold text-gray-700 mb-2">Bill To:</h2>
+                <div class="space-y-1">
+                    <input type="text" id="clientName" placeholder="Client Name" class="input-text w-full font-bold text-gray-800 text-lg">
+                    <input type="text" id="clientAddress1" placeholder="Street Address" class="input-text w-full text-gray-600">
+                    <input type="text" id="clientAddress2" placeholder="City, Postcode" class="input-text w-full text-gray-600">
+                    <input type="email" id="clientEmail" placeholder="Client Email" class="input-text w-full text-gray-600">
+                </div>
+                <div class="pt-2">
+                    <button onclick="saveClientDetails()" class="no-print px-3 py-1 text-xs font-medium text-white bg-indigo-500 rounded-lg shadow-md hover:bg-indigo-600 transition duration-150">
+                        Save Client
+                    </button>
+                    <button onclick="clearClientDetails()" class="no-print px-3 py-1 text-xs font-medium text-gray-600 bg-gray-200 rounded-lg shadow-md hover:bg-gray-300 transition duration-150 ml-2">
+                        Clear Client
+                    </button>
+                </div>
+            </div>
+        </section>
+
+        <!-- Line Items Table -->
+        <section class="mb-8 overflow-x-auto">
+            <table class="min-w-full divide-y divide-gray-200">
+                <thead>
+                    <tr class="bg-indigo-50 text-indigo-800 text-left text-sm font-semibold uppercase tracking-wider">
+                        <th class="py-3 px-4 w-1/12">Date</th>
+                        <th class="py-3 px-4 w-5/12">Description</th>
+                        <th class="py-3 px-4 w-2/12 text-right">Rate (£)</th>
+                        <th class="py-3 px-4 w-1/12 text-center">Qty</th>
+                        <th class="py-3 px-4 w-2/12 text-right">Amount (£)</th>
+                        <th class="py-3 px-4 w-1/12 text-center no-print"></th>
+                    </tr>
+                </thead>
+                <tbody id="invoiceTableBody" class="bg-white divide-y divide-gray-100 text-gray-700">
+                    <!-- Dynamic Rows will be inserted here -->
+                </tbody>
+            </table>
+            
+            <button onclick="addLineItem()" class="no-print mt-4 px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-lg shadow-md hover:bg-indigo-700 transition duration-150">
+                + Add Service/Charge
+            </button>
+        </section>
+
+        <!-- Totals & Summary -->
+        <section class="flex justify-end mb-10">
+            <div class="w-full sm:w-80">
+                <div class="text-sm font-medium text-gray-800 space-y-2">
+                    <div class="flex justify-between">
+                        <span>Subtotal:</span>
+                        <span id="subtotalDisplay" class="font-normal">£0.00</span>
+                    </div>
+                    <!-- Assuming no tax is applied for simplicity, but can be added here if needed -->
+                    <div class="flex justify-between pt-2 border-t border-gray-200 text-lg font-bold text-indigo-700">
+                        <span>Total Due:</span>
+                        <span id="totalDisplay">£0.00</span>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Payment and Contract Notes -->
+        <footer class="mt-8 pt-6 border-t border-gray-200">
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-8">
+                <div>
+                    <h3 class="text-lg font-semibold text-gray-800 mb-2">Payment Details</h3>
+                    <p class="text-sm text-gray-600">
+                        Please pay via **Direct Bank Transfer** to the account below:
+                    </p>
+                    <div class="mt-2 text-sm space-y-1 bg-indigo-50 p-3 rounded-lg">
+                        <p><span class="font-medium">Sort Code:</span> 60-83-71</p>
+                        <p><span class="font-medium">Account No:</span> 24548433</p>
+                    </div>
+                </div>
+                <div>
+                    <h3 class="text-lg font-semibold text-gray-800 mb-2">Contract & Policy Notes</h3>
+                    <p class="text-sm text-gray-600">
+                        **Cancellation Policy:** As per our contract, the **full session fee will be charged** for cancellations made with less than 24 hours notice or for failure to attend.
+                    </p>
+                    <p class="text-xs mt-2 text-gray-500">
+                        This invoice is due 24 hours in advance of the session date.
+                    </p>
+                </div>
+            </div>
+
+            <!-- Print Button -->
+            <div class="no-print mt-10 text-center">
+                <button onclick="window.print()" class="px-8 py-3 text-lg font-bold text-white bg-green-600 rounded-lg shadow-xl hover:bg-green-700 transition duration-150 transform hover:scale-105">
+                    Print / Download Invoice
+                </button>
+            </div>
+        </footer>
+
+    </div>
+
+    <script type="module">
+        // --- Firestore Security Rules Fix (Necessary for persistence) ---
+        if (typeof __set_firestore_rules !== 'undefined') {
+            const rules = `
+                rules_version = '2';
+                service cloud.firestore {
+                    match /databases/{database}/documents {
+                        // Rule to allow read/write access ONLY for documents owned by the authenticated user's ID (userId)
+                        match /artifacts/{appId}/users/{userId}/{document=**} {
+                            allow read, write: if request.auth != null && request.auth.uid == userId;
+                        }
+                    }
+                }
+            `;
+            __set_firestore_rules(rules);
+        }
+        // --- End of Fix ---
+
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, setDoc, getDoc, collection, getDocs, query, limit } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // --- Firebase Setup (MANDATORY GLOBALS) ---
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : null;
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+
+        let db, auth, userId;
+        const loadingOverlay = document.getElementById('loadingOverlay');
+
+        // Set Firestore log level (optional, but useful for debugging)
+        setLogLevel('Debug');
+
+        /**
+         * Dynamic path and reference getters to ensure userId is resolved.
+         */
+        function getInvoiceDocRef() {
+            if (!db || !userId) throw new Error("Database or User ID is not ready.");
+            return doc(db, `/artifacts/${appId}/users/${userId}/invoice_data/state`);
+        }
+        
+        function getClientDocRef(clientName) {
+            if (!db || !userId) throw new Error("Database or User ID is not ready.");
+            const slug = clientName.trim().toLowerCase().replace(/[^a-z0-9]/g, '-');
+            return doc(db, `/artifacts/${appId}/users/${userId}/clients/${slug}`);
+        }
+        
+        function getClientsCollectionRef() {
+            if (!db || !userId) throw new Error("Database or User ID is not ready.");
+            return collection(db, `/artifacts/${appId}/users/${userId}/clients`);
+        }
+
+        async function initializeFirebase() {
+            loadingOverlay.classList.remove('hidden');
+            if (!firebaseConfig) {
+                console.error("Firebase config is missing. Data persistence will not work.");
+                loadingOverlay.classList.add('hidden');
+                return;
+            }
+
+            try {
+                const app = initializeApp(firebaseConfig);
+                db = getFirestore(app);
+                auth = getAuth(app);
+
+                // Sign in using the provided token or anonymously
+                if (initialAuthToken) {
+                    await signInWithCustomToken(auth, initialAuthToken);
+                } else {
+                    await signInAnonymously(auth);
+                }
+
+                // Wait for the auth state to settle and get the userId
+                await new Promise(resolve => {
+                    const unsubscribe = onAuthStateChanged(auth, user => {
+                        if (user) {
+                            userId = user.uid;
+                        } else if (!user && !initialAuthToken) {
+                            userId = auth.currentUser?.uid || 'anonymous-user';
+                        } else if (!user && initialAuthToken) {
+                            console.error("Custom token sign-in failed.");
+                            userId = 'anonymous-user';
+                        }
+                        // Unsubscribe after the first state change is processed
+                        unsubscribe(); 
+                        resolve();
+                    });
+                });
+
+                console.log(`Firebase initialized. User ID: ${userId}`);
+                await loadInvoiceData();
+
+            } catch (error) {
+                console.error("Error during Firebase initialization or sign-in:", error);
+            } finally {
+                loadingOverlay.classList.add('hidden');
+            }
+        }
+
+        // --- Core Invoice Functionality ---
+
+        // Global rate options based on the contract and user request
+        const ITEM_OPTIONS = [
+            { desc: 'Counselling Session (In-Person)', rate: 50.00, isCancellation: false },
+            { desc: 'Counselling Session (Online Meeting)', rate: 45.00, isCancellation: false },
+            { desc: 'Late Cancellation / No-Show Fee (Contract Clause)', rate: 50.00, isCancellation: true },
+            { desc: 'Other Charge', rate: 0.00, isCancellation: false }
+        ];
+
+        // Global DOM references
+        const invoiceTableBody = document.getElementById('invoiceTableBody');
+        const subtotalDisplay = document.getElementById('subtotalDisplay');
+        const totalDisplay = document.getElementById('totalDisplay');
+        const DEFAULT_RATE = ITEM_OPTIONS[0].rate; // Default rate for initial row display
+
+        // Utility to format number as currency
+        const formatCurrency = (amount) => {
+            return `£${parseFloat(amount).toFixed(2)}`;
+        };
+
+        // Function to set today's date and a default due date
+        const setInitialDates = () => {
+            const today = new Date();
+            const dateString = today.toISOString().substring(0, 10);
+            
+            document.getElementById('invoiceDate').value = dateString;
+            
+            // Set due date as 7 days from now as a sensible default
+            const nextWeek = new Date(today);
+            nextWeek.setDate(today.getDate() + 7);
+            document.getElementById('dueDate').value = nextWeek.toISOString().substring(0, 10);
+        };
+
+        // Function to handle changes in the description dropdown
+        window.handleDescriptionChange = (selectElement, rowId) => {
+            const row = document.getElementById(rowId);
+            const customInput = row.querySelector('.line-description-custom');
+            const rateInput = row.querySelector('.line-rate');
+            const descriptionSelect = row.querySelector('.line-description-select');
+
+            const selectedOption = descriptionSelect.options[descriptionSelect.selectedIndex];
+            const newRate = parseFloat(selectedOption.getAttribute('data-rate'));
+            const isCancellation = selectedOption.getAttribute('data-cancellation') === 'true';
+
+            // 1. Handle custom input visibility and focus
+            if (selectedOption.value === 'Other Charge') {
+                customInput.classList.remove('hidden');
+                customInput.value = ''; // Clear custom input
+                setTimeout(() => customInput.focus(), 50); 
+            } else {
+                customInput.classList.add('hidden');
+            }
+
+            // 2. Handle row styling for cancellations
+            if (isCancellation) {
+                row.classList.add('bg-red-50', 'hover:bg-red-100');
+                row.classList.remove('hover:bg-gray-50');
+            } else {
+                row.classList.remove('bg-red-50', 'hover:bg-red-100');
+                row.classList.add('hover:bg-gray-50');
+            }
+
+            // 3. Update rate input value
+            rateInput.value = newRate.toFixed(2);
+            
+            // 4. Trigger recalculation
+            rateInput.dispatchEvent(new Event('input'));
+        };
+
+        // Function to create a new line item row
+        const createLineItemRow = () => {
+            const rowId = 'row-' + Date.now();
+            const row = document.createElement('tr');
+            row.id = rowId;
+            row.className = 'hover:bg-gray-50 transition duration-150';
+
+            const defaultRate = DEFAULT_RATE.toFixed(2);
+            const invoiceDateMax = document.getElementById('invoiceDate').value;
+            
+            // Generate options for the select element
+            const optionsHtml = ITEM_OPTIONS.map(opt => 
+                `<option value="${opt.desc}" data-rate="${opt.rate.toFixed(2)}" data-cancellation="${opt.isCancellation}">${opt.desc}</option>`
+            ).join('');
+
+            row.innerHTML = `
+                <td class="py-3 px-4">
+                    <input type="date" class="input-text w-full line-date" max="${invoiceDateMax}">
+                </td>
+                <td class="py-3 px-4">
+                    <div class="flex flex-col space-y-1">
+                        <select class="input-text w-full line-description-select bg-white" onchange="handleDescriptionChange(this, '${rowId}')">
+                            ${optionsHtml}
+                        </select>
+                        <input type="text" placeholder="Enter custom description" class="input-text w-full line-description-custom hidden">
+                    </div>
+                </td>
+                <td class="py-3 px-4 text-right">
+                    <input type="number" step="0.01" value="${defaultRate}" class="input-text w-full text-right line-rate" data-row-id="${rowId}">
+                </td>
+                <td class="py-3 px-4 text-center">
+                    <input type="number" value="1" min="1" class="input-text w-full text-center line-qty" data-row-id="${rowId}">
+                </td>
+                <td class="py-3 px-4 text-right font-medium">
+                    <span class="line-amount">£${defaultRate}</span>
+                </td>
+                <td class="py-3 px-4 text-center no-print">
+                    <button onclick="removeLineItem('${rowId}')" class="text-red-500 hover:text-red-700 transition duration-150">
+                        &times;
+                    </button>
+                </td>
+            `;
+            
+            // Add event listeners for rate and quantity inputs
+            const rateInput = row.querySelector('.line-rate');
+            const qtyInput = row.querySelector('.line-qty');
+
+            const recalculateHandler = () => {
+                calculateLineTotal(rowId);
+                calculateGrandTotal();
+            };
+
+            rateInput.addEventListener('input', recalculateHandler);
+            qtyInput.addEventListener('input', recalculateHandler);
+            row.querySelector('.line-description-custom').addEventListener('input', recalculateHandler);
+
+            return row;
+        };
+        window.addLineItem = () => {
+            const newRow = createLineItemRow();
+            invoiceTableBody.appendChild(newRow);
+            calculateGrandTotal();
+        };
+        window.removeLineItem = (rowId) => {
+            const row = document.getElementById(rowId);
+            if (row) {
+                row.remove();
+                calculateGrandTotal();
+            }
+        };
+
+        const calculateLineTotal = (rowId) => {
+            const row = document.getElementById(rowId);
+            if (!row) return 0;
+
+            const rate = parseFloat(row.querySelector('.line-rate').value) || 0;
+            const qty = parseInt(row.querySelector('.line-qty').value) || 0;
+            const amount = rate * qty;
+            
+            row.querySelector('.line-amount').textContent = formatCurrency(amount);
+            return amount;
+        };
+
+        const calculateGrandTotal = () => {
+            let subtotal = 0;
+            const rows = invoiceTableBody.querySelectorAll('tr');
+
+            rows.forEach(row => {
+                const rowId = row.id;
+                subtotal += calculateLineTotal(rowId);
+            });
+
+            subtotalDisplay.textContent = formatCurrency(subtotal);
+            totalDisplay.textContent = formatCurrency(subtotal);
+        };
+
+        // --- Database Logic ---
+
+        function parseInvoiceNumber(invoiceNum) {
+            const parts = invoiceNum.split('-');
+            if (parts.length >= 2) {
+                const prefix = parts.slice(0, parts.length - 1).join('-');
+                const numberPart = parseInt(parts[parts.length - 1], 10);
+                if (!isNaN(numberPart)) {
+                    return { prefix: prefix + '-', numberPart };
+                }
+            }
+            return { prefix: 'INV-2024-', numberPart: 1 }; // Default
+        }
+
+        async function loadInvoiceData() {
+            if (!db || !userId) return;
+            try {
+                // 1. Load Invoice Number
+                const docRef = getInvoiceDocRef();
+                const docSnap = await getDoc(docRef);
+
+                if (docSnap.exists()) {
+                    const data = docSnap.data();
+                    const nextInvoiceNumber = data.nextInvoiceNumber || 'INV-2024-001';
+                    document.getElementById('invoiceNumber').value = nextInvoiceNumber;
+                    console.log("Loaded next invoice number:", nextInvoiceNumber);
+                } else {
+                    console.log("No stored invoice number found. Using default 'INV-2024-001'.");
+                }
+                
+                // 2. Load Last Client Data (simplistic example: load the first client found)
+                const clientsCollectionRef = getClientsCollectionRef();
+                const q = query(clientsCollectionRef, limit(1));
+                const clientSnap = await getDocs(q);
+
+                if (!clientSnap.empty) {
+                    const clientData = clientSnap.docs[0].data();
+                    document.getElementById('clientName').value = clientData.clientName || '';
+                    document.getElementById('clientAddress1').value = clientData.clientAddress1 || '';
+                    document.getElementById('clientAddress2').value = clientData.clientAddress2 || '';
+                    document.getElementById('clientEmail').value = clientData.clientEmail || '';
+                    console.log("Loaded last client details.");
+                }
+
+            } catch (e) {
+                // Now, if an error happens here, it's a genuine permissions issue or network error
+                console.error("Error loading data:", e);
+            }
+        }
+
+        window.saveAndIncrementInvoice = async () => {
+            try {
+                const docRef = getInvoiceDocRef(); // Get ref dynamically
+
+                const currentInvoiceNum = document.getElementById('invoiceNumber').value;
+                const { prefix, numberPart } = parseInvoiceNumber(currentInvoiceNum);
+
+                // Calculate the next sequential number
+                const nextNumber = numberPart + 1;
+                const paddedNextNumber = nextNumber.toString().padStart(3, '0'); // e.g., 002
+                const nextInvoiceNum = `${prefix}${paddedNextNumber}`;
+
+                await setDoc(docRef, { nextInvoiceNumber: nextInvoiceNum, lastUsed: new Date().toISOString() });
+                console.log(`Invoice number saved and incremented. Next number: ${nextInvoiceNum}`);
+                
+                // UI feedback
+                const saveBtn = document.querySelector('button[onclick="saveAndIncrementInvoice()"]');
+                saveBtn.textContent = 'Saved!';
+                setTimeout(() => { saveBtn.textContent = 'Save Invoice Number'; }, 2000);
+
+            } catch (e) {
+                console.error("Error saving invoice number:", e);
+            }
+        };
+
+        window.saveClientDetails = async () => {
+            const clientName = document.getElementById('clientName').value;
+            if (!clientName.trim()) {
+                console.warn("Client Name is required to save details.");
+                return;
+            }
+
+            try {
+                const docRef = getClientDocRef(clientName); // Get ref dynamically
+
+                const clientData = {
+                    clientName: clientName,
+                    clientAddress1: document.getElementById('clientAddress1').value,
+                    clientAddress2: document.getElementById('clientAddress2').value,
+                    clientEmail: document.getElementById('clientEmail').value,
+                    lastSaved: new Date().toISOString()
+                };
+
+                await setDoc(docRef, clientData);
+                console.log(`Client details for ${clientName} saved.`);
+
+                const saveBtn = document.querySelector('button[onclick="saveClientDetails()"]');
+                saveBtn.textContent = 'Saved!';
+                setTimeout(() => { saveBtn.textContent = 'Save Client'; }, 2000);
+
+            } catch (e) {
+                console.error("Error saving client details:", e);
+            }
+        };
+
+        window.clearClientDetails = () => {
+            document.getElementById('clientName').value = '';
+            document.getElementById('clientAddress1').value = '';
+            document.getElementById('clientAddress2').value = '';
+            document.getElementById('clientEmail').value = '';
+            console.log("Client details cleared.");
+        }
+
+        // --- Initialization ---
+        window.onload = () => {
+            setInitialDates();
+            initializeFirebase();
+            
+            // Add event listener to the main Invoice Date input to update line item date constraints
+            document.getElementById('invoiceDate').addEventListener('change', () => {
+                const invoiceDateMax = document.getElementById('invoiceDate').value;
+                invoiceTableBody.querySelectorAll('.line-date').forEach(input => {
+                    input.max = invoiceDateMax;
+                });
+            });
+            
+            // Add two default line items on load
+            addLineItem();
+            addLineItem();
+        };
+    </script>
+
+</body>
+</html>
